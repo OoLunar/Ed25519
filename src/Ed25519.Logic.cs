@@ -1,112 +1,10 @@
-using System;
 using System.IO;
 using System.Numerics;
-using System.Security.Cryptography;
 
-namespace Cryptographic
+namespace System.Security.Cryptography
 {
     public static partial class Ed25519
     {
-        /// <summary>
-        /// Encodes a BigInteger integer into a byte array representation.
-        /// </summary>
-        /// <param name="y">The BigInteger integer to be encoded.</param>
-        /// <remarks>
-        /// This function encodes a given BigInteger 'y' into a byte array representation. Encoding
-        /// integers into byte arrays is a common operation in cryptography and data serialization.
-        ///
-        /// The function first converts the BigInteger 'y' into its binary representation using the
-        /// ToByteArray method. It then ensures that the encoded representation occupies at least 32 bytes
-        /// by copying the binary data into a new byte array of appropriate size.
-        /// </remarks>
-        /// <returns>A byte array containing the encoded representation of the input BigInteger.</returns>
-        public static byte[] EncodeInt(BigInteger y)
-        {
-            // Convert the BigInteger 'y' into its binary representation.
-            byte[] nin = y.ToByteArray();
-
-            // Create a new byte array of size at least 32 and copy the binary data.
-            byte[] nout = new byte[Math.Max(nin.Length, 32)];
-            nin.CopyTo(nout.AsSpan(nout.Length - nin.Length));
-
-            return nout;
-        }
-
-        /// <summary>
-        /// Decodes a byte array representation into a BigInteger integer.
-        /// </summary>
-        /// <param name="s">The byte array to be decoded.</param>
-        /// <remarks>
-        /// This function decodes a given byte array 's' into a BigInteger integer.
-        /// The function constructs the BigInteger by treating the byte array as an unsigned integer,
-        /// and then applies a bitwise AND operation with a predefined mask '_un' to ensure it's within bounds.
-        /// </remarks>
-        /// <returns>The decoded BigInteger integer.</returns>
-        // Construct a BigInteger by treating the byte array as an unsigned integer.
-        // Apply a bitwise AND operation with '_un' to ensure the value is within bounds.
-        public static BigInteger DecodeInt(ReadOnlySpan<byte> s) => new BigInteger(s) & _un;
-
-        /// <summary>
-        /// Encodes an elliptic curve point (x, y) into a compressed byte array representation.
-        /// </summary>
-        /// <param name="x">The x-coordinate of the elliptic curve point.</param>
-        /// <param name="y">The y-coordinate of the elliptic curve point.</param>
-        /// <remarks>
-        /// This function encodes an elliptic curve point (x, y) into a compressed byte array representation.
-        /// Compressing the point representation is a common practice in elliptic curve cryptography to save space.
-        ///
-        /// The function first encodes the y-coordinate using the 'EncodeInt' function, resulting in a byte array.
-        /// It then modifies the last byte of the y-coordinate representation to indicate whether the x-coordinate
-        /// is even or odd. If x is even, the last bit of the last byte is set to 0; otherwise, it's set to 1.
-        ///
-        /// The resulting compressed byte array contains the encoded point (x, y) with the x-coordinate parity bit.
-        /// </remarks>
-        /// <returns>A compressed byte array containing the encoded representation of the point (x, y).</returns>
-        public static byte[] EncodePoint(BigInteger x, BigInteger y)
-        {
-            byte[] nout = EncodeInt(y);
-
-            // Set the last bit of the last byte to indicate x-coordinate parity.
-            nout[^1] |= x.IsEven ? (byte)0 : (byte)128;
-
-            return nout;
-        }
-
-        /// <summary>
-        /// Decodes a compressed byte array representation into an elliptic curve point (x, y).
-        /// </summary>
-        /// <param name="pointBytes">The compressed byte array representing the point.</param>
-        /// <remarks>
-        /// This function decodes a given compressed byte array 'pointBytes' into an elliptic curve point (x, y).
-        /// The decoding process involves recovering the x-coordinate 'x' from the y-coordinate 'y' using the
-        /// 'RecoverX' function. The parity of the x-coordinate is adjusted based on the last bit of 'pointBytes'.
-        ///
-        /// The function then checks if the decoded point lies on the curve using the 'IsOnCurve' function. If
-        /// the point is on the curve, it's returned as the result. If the point is not on the curve, an
-        /// ArgumentException is thrown.
-        /// </remarks>
-        /// <returns>The (x, y) coordinates of the decoded elliptic curve point.</returns>
-        /// <exception cref="ArgumentException">Thrown when the decoded point is not on the curve.</exception>
-        public static (BigInteger, BigInteger) DecodePoint(ReadOnlySpan<byte> pointBytes)
-        {
-            // Construct a BigInteger from the compressed byte array and apply the mask '_un'.
-            BigInteger y = new BigInteger(pointBytes) & _un;
-
-            // Recover the x-coordinate from the y-coordinate.
-            BigInteger x = RecoverX(y);
-
-            // Adjust x-coordinate parity based on the last bit of 'pointBytes'.
-            if ((x.IsEven ? 0 : 1) != GetBit(pointBytes, BIT_LENGTH - 1))
-            {
-                x = _q - x;
-            }
-
-            // Check if the decoded point lies on the curve.
-            return IsOnCurve(x, y)
-                ? (x, y)
-                : throw new ArgumentException("Decoding point that is not on curve");
-        }
-
         /// <summary>
         /// Computes the public key corresponding to a given Ed25519 signing key.
         /// </summary>
@@ -269,6 +167,106 @@ namespace Cryptographic
 
             // Check if the computed points satisfy the equality relation.
             return ra.Item1.Equals(rb.Item1) && ra.Item2.Equals(rb.Item2);
+        }
+
+        /// <summary>
+        /// Encodes a BigInteger integer into a byte array representation.
+        /// </summary>
+        /// <param name="y">The BigInteger integer to be encoded.</param>
+        /// <remarks>
+        /// This function encodes a given BigInteger 'y' into a byte array representation. Encoding
+        /// integers into byte arrays is a common operation in cryptography and data serialization.
+        ///
+        /// The function first converts the BigInteger 'y' into its binary representation using the
+        /// ToByteArray method. It then ensures that the encoded representation occupies at least 32 bytes
+        /// by copying the binary data into a new byte array of appropriate size.
+        /// </remarks>
+        /// <returns>A byte array containing the encoded representation of the input BigInteger.</returns>
+        private static byte[] EncodeInt(BigInteger y)
+        {
+            // Convert the BigInteger 'y' into its binary representation.
+            byte[] nin = y.ToByteArray();
+
+            // Create a new byte array of size at least 32 and copy the binary data.
+            byte[] nout = new byte[Math.Max(nin.Length, 32)];
+            nin.CopyTo(nout.AsSpan(nout.Length - nin.Length));
+
+            return nout;
+        }
+
+        /// <summary>
+        /// Decodes a byte array representation into a BigInteger integer.
+        /// </summary>
+        /// <param name="s">The byte array to be decoded.</param>
+        /// <remarks>
+        /// This function decodes a given byte array 's' into a BigInteger integer.
+        /// The function constructs the BigInteger by treating the byte array as an unsigned integer,
+        /// and then applies a bitwise AND operation with a predefined mask '_un' to ensure it's within bounds.
+        /// </remarks>
+        /// <returns>The decoded BigInteger integer.</returns>
+        // Construct a BigInteger by treating the byte array as an unsigned integer.
+        // Apply a bitwise AND operation with '_un' to ensure the value is within bounds.
+        private static BigInteger DecodeInt(ReadOnlySpan<byte> s) => new BigInteger(s) & _un;
+
+        /// <summary>
+        /// Encodes an elliptic curve point (x, y) into a compressed byte array representation.
+        /// </summary>
+        /// <param name="x">The x-coordinate of the elliptic curve point.</param>
+        /// <param name="y">The y-coordinate of the elliptic curve point.</param>
+        /// <remarks>
+        /// This function encodes an elliptic curve point (x, y) into a compressed byte array representation.
+        /// Compressing the point representation is a common practice in elliptic curve cryptography to save space.
+        ///
+        /// The function first encodes the y-coordinate using the 'EncodeInt' function, resulting in a byte array.
+        /// It then modifies the last byte of the y-coordinate representation to indicate whether the x-coordinate
+        /// is even or odd. If x is even, the last bit of the last byte is set to 0; otherwise, it's set to 1.
+        ///
+        /// The resulting compressed byte array contains the encoded point (x, y) with the x-coordinate parity bit.
+        /// </remarks>
+        /// <returns>A compressed byte array containing the encoded representation of the point (x, y).</returns>
+        private static byte[] EncodePoint(BigInteger x, BigInteger y)
+        {
+            byte[] nout = EncodeInt(y);
+
+            // Set the last bit of the last byte to indicate x-coordinate parity.
+            nout[^1] |= x.IsEven ? (byte)0 : (byte)128;
+
+            return nout;
+        }
+
+        /// <summary>
+        /// Decodes a compressed byte array representation into an elliptic curve point (x, y).
+        /// </summary>
+        /// <param name="pointBytes">The compressed byte array representing the point.</param>
+        /// <remarks>
+        /// This function decodes a given compressed byte array 'pointBytes' into an elliptic curve point (x, y).
+        /// The decoding process involves recovering the x-coordinate 'x' from the y-coordinate 'y' using the
+        /// 'RecoverX' function. The parity of the x-coordinate is adjusted based on the last bit of 'pointBytes'.
+        ///
+        /// The function then checks if the decoded point lies on the curve using the 'IsOnCurve' function. If
+        /// the point is on the curve, it's returned as the result. If the point is not on the curve, an
+        /// ArgumentException is thrown.
+        /// </remarks>
+        /// <returns>The (x, y) coordinates of the decoded elliptic curve point.</returns>
+        /// <exception cref="ArgumentException">Thrown when the decoded point is not on the curve.</exception>
+        private static (BigInteger, BigInteger) DecodePoint(ReadOnlySpan<byte> pointBytes)
+        {
+            // Construct a BigInteger from the compressed byte array and apply the mask '_un'.
+            BigInteger y = new BigInteger(pointBytes) & _un;
+
+            // Recover the x-coordinate from the y-coordinate.
+            BigInteger x = RecoverX(y);
+
+            // Adjust x-coordinate parity based on the last bit of 'pointBytes'.
+            if ((x.IsEven ? 0 : 1) != GetBit(pointBytes, BIT_LENGTH - 1))
+            {
+                x = _q - x;
+            }
+
+            // Check if the decoded point lies on the curve.
+            return IsOnCurve(x, y)
+                ? (x, y)
+                : throw new ArgumentException("Decoding point that is not on curve");
         }
 
         /// <summary>

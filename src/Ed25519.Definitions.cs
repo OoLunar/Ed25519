@@ -1,7 +1,7 @@
 using System.Linq;
 using System.Numerics;
 
-namespace Cryptographic
+namespace System.Security.Cryptography
 {
     /*
      * Refactored from netframework v4 to net5.0 by lunar@forsaken-borders.net <Lunar Starstrum>, August 10th, 2023

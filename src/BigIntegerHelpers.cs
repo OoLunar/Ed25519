@@ -1,6 +1,6 @@
 using System.Numerics;
 
-namespace Cryptographic
+namespace System.Security.Cryptography
 {
     internal static class BigIntegerHelpers
     {
