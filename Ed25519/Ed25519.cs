@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.IO;
 using System.Linq;
 using System.Numerics;
@@ -17,13 +17,7 @@ namespace Cryptographic
 
     public class Ed25519
     {
-        private static byte[] ComputeHash(byte[] m)
-        {
-            using (var sha512 = SHA512Managed.Create())
-            {
-                return sha512.ComputeHash(m);
-            }
-        }
+        private static byte[] ComputeHash(byte[] m) => SHA512.HashData(m);
 
         private static BigInteger ExpMod(BigInteger number, BigInteger exponent, BigInteger modulo)
         {
@@ -40,17 +34,14 @@ namespace Cryptographic
             return t;
         }
 
-        private static BigInteger Inv(BigInteger x)
-        {
-            return ExpMod(x, Qm2, Q);
-        }
+        private static BigInteger Inv(BigInteger x) => ExpMod(x, Qm2, Q);
 
         private static BigInteger RecoverX(BigInteger y)
         {
             BigInteger y2 = y * y;
-            BigInteger xx = (y2 - 1) * Inv(D * y2 + 1);
+            BigInteger xx = (y2 - 1) * Inv((D * y2) + 1);
             BigInteger x = ExpMod(xx, Qp3 / Eight, Q);
-            if (!(x * x - xx).Mod(Q).Equals(BigInteger.Zero))
+            if (!((x * x) - xx).Mod(Q).Equals(BigInteger.Zero))
             {
                 x = (x * I).Mod(Q);
             }
@@ -66,8 +57,8 @@ namespace Cryptographic
             BigInteger xx12 = px * qx;
             BigInteger yy12 = py * qy;
             BigInteger dtemp = D * xx12 * yy12;
-            BigInteger x3 = (px * qy + qx * py) * (Inv(1 + dtemp));
-            BigInteger y3 = (py * qy + xx12) * (Inv(1 - dtemp));
+            BigInteger x3 = ((px * qy) + (qx * py)) * Inv(1 + dtemp);
+            BigInteger y3 = ((py * qy) + xx12) * Inv(1 - dtemp);
             return new Tuple<BigInteger, BigInteger>(x3.Mod(Q), y3.Mod(Q));
         }
 
@@ -76,8 +67,8 @@ namespace Cryptographic
             BigInteger xx = x * x;
             BigInteger yy = y * y;
             BigInteger dtemp = D * xx * yy;
-            BigInteger x3 = (2 * x * y) * (Inv(1 + dtemp));
-            BigInteger y3 = (yy + xx) * (Inv(1 - dtemp));
+            BigInteger x3 = 2 * x * y * Inv(1 + dtemp);
+            BigInteger y3 = (yy + xx) * Inv(1 - dtemp);
             return new Tuple<BigInteger, BigInteger>(x3.Mod(Q), y3.Mod(Q));
         }
         private static Tuple<BigInteger, BigInteger> ScalarMul(Tuple<BigInteger, BigInteger> p, BigInteger e)
@@ -86,16 +77,20 @@ namespace Cryptographic
             {
                 return new Tuple<BigInteger, BigInteger>(BigInteger.Zero, BigInteger.One);
             }
-            var q = ScalarMul(p, e / Two);
+            Tuple<BigInteger, BigInteger> q = ScalarMul(p, e / Two);
             q = EdwardsSquare(q.Item1, q.Item2);
-            if (!e.IsEven) q = Edwards(q.Item1, q.Item2, p.Item1, p.Item2);
+            if (!e.IsEven)
+            {
+                q = Edwards(q.Item1, q.Item2, p.Item1, p.Item2);
+            }
+
             return q;
         }
 
         public static byte[] EncodeInt(BigInteger y)
         {
             byte[] nin = y.ToByteArray();
-            var nout = new byte[Math.Max(nin.Length, 32)];
+            byte[] nout = new byte[Math.Max(nin.Length, 32)];
             Array.Copy(nin, nout, nin.Length);
             return nout;
         }
@@ -103,14 +98,11 @@ namespace Cryptographic
         public static byte[] EncodePoint(BigInteger x, BigInteger y)
         {
             byte[] nout = EncodeInt(y);
-            nout[nout.Length - 1] |= (x.IsEven ? (byte)0 : (byte)0x80);
+            nout[nout.Length - 1] |= x.IsEven ? (byte)0 : (byte)0x80;
             return nout;
         }
 
-        private static int GetBit(byte[] h, int i)
-        {
-            return h[i / 8] >> (i % 8) & 1;
-        }
+        private static int GetBit(byte[] h, int i) => (h[i / 8] >> (i % 8)) & 1;
 
         public static byte[] PublicKey(byte[] signingKey)
         {
@@ -118,13 +110,13 @@ namespace Cryptographic
             BigInteger a = TwoPowBitLengthMinusTwo;
             for (int i = 3; i < (BitLength - 2); i++)
             {
-                var bit = GetBit(h, i);
+                int bit = GetBit(h, i);
                 if (bit != 0)
                 {
                     a += TwoPowCache[i];
                 }
             }
-            var bigA = ScalarMul(B, a);
+            Tuple<BigInteger, BigInteger> bigA = ScalarMul(B, a);
             return EncodePoint(bigA.Item1, bigA.Item2);
         }
 
@@ -134,7 +126,7 @@ namespace Cryptographic
             BigInteger hsum = BigInteger.Zero;
             for (int i = 0; i < 2 * BitLength; i++)
             {
-                var bit = GetBit(h, i);
+                int bit = GetBit(h, i);
                 if (bit != 0)
                 {
                     hsum += TwoPowCache[i];
@@ -149,7 +141,7 @@ namespace Cryptographic
             BigInteger a = TwoPowBitLengthMinusTwo;
             for (int i = 3; i < (BitLength - 2); i++)
             {
-                var bit = GetBit(h, i);
+                int bit = GetBit(h, i);
                 if (bit != 0)
                 {
                     a += TwoPowCache[i];
@@ -157,27 +149,27 @@ namespace Cryptographic
             }
 
             BigInteger r;
-            using (var rsub = new MemoryStream((BitLength / 8) + message.Length))
+            using (MemoryStream rsub = new MemoryStream((BitLength / 8) + message.Length))
             {
-                rsub.Write(h, BitLength / 8, BitLength / 4 - BitLength / 8);
+                rsub.Write(h, BitLength / 8, (BitLength / 4) - (BitLength / 8));
                 rsub.Write(message, 0, message.Length);
                 r = HashInt(rsub.ToArray());
             }
-            var bigR = ScalarMul(B, r);
+            Tuple<BigInteger, BigInteger> bigR = ScalarMul(B, r);
             BigInteger s;
-            var encodedBigR = EncodePoint(bigR.Item1, bigR.Item2);
-            using (var stemp = new MemoryStream(32 + publicKey.Length + message.Length))
+            byte[] encodedBigR = EncodePoint(bigR.Item1, bigR.Item2);
+            using (MemoryStream stemp = new MemoryStream(32 + publicKey.Length + message.Length))
             {
                 stemp.Write(encodedBigR, 0, encodedBigR.Length);
                 stemp.Write(publicKey, 0, publicKey.Length);
                 stemp.Write(message, 0, message.Length);
-                s = (r+ HashInt(stemp.ToArray()) * a).Mod(L);
+                s = (r + (HashInt(stemp.ToArray()) * a)).Mod(L);
             }
 
-            using (var nout = new MemoryStream(64))
+            using (MemoryStream nout = new MemoryStream(64))
             {
                 nout.Write(encodedBigR, 0, encodedBigR.Length);
-                var encodeInt = EncodeInt(s);
+                byte[] encodeInt = EncodeInt(s);
                 nout.Write(encodeInt, 0, encodeInt.Length);
                 return nout.ToArray();
             }
@@ -191,10 +183,7 @@ namespace Cryptographic
             return (yy - xx - dxxyy - 1).Mod(Q).Equals(BigInteger.Zero);
         }
 
-        private static BigInteger DecodeInt(byte[] s)
-        {
-            return new BigInteger(s) & Un;
-        }
+        private static BigInteger DecodeInt(byte[] s) => new BigInteger(s) & Un;
 
         private static Tuple<BigInteger, BigInteger> DecodePoint(byte[] pointBytes)
         {
@@ -204,38 +193,42 @@ namespace Cryptographic
             {
                 x = Q - x;
             }
-            var point = new Tuple<BigInteger, BigInteger>(x, y);
-            if (!IsOnCurve(x, y)) throw new ArgumentException("Decoding point that is not on curve");
-            return point;
+            Tuple<BigInteger, BigInteger> point = new Tuple<BigInteger, BigInteger>(x, y);
+            return !IsOnCurve(x, y) ? throw new ArgumentException("Decoding point that is not on curve") : point;
         }
 
         public static bool CheckValid(byte[] signature, byte[] message, byte[] publicKey)
         {
-            if (signature.Length != BitLength / 4) throw new ArgumentException("Signature length is wrong");
-            if (publicKey.Length != BitLength / 8) throw new ArgumentException("Public key length is wrong");
+            if (signature.Length != BitLength / 4)
+            {
+                throw new ArgumentException("Signature length is wrong");
+            }
+
+            if (publicKey.Length != BitLength / 8)
+            {
+                throw new ArgumentException("Public key length is wrong");
+            }
 
             byte[] rByte = Arrays.CopyOfRange(signature, 0, BitLength / 8);
-            var r = DecodePoint(rByte);
-            var a = DecodePoint(publicKey);
+            Tuple<BigInteger, BigInteger> r = DecodePoint(rByte);
+            Tuple<BigInteger, BigInteger> a = DecodePoint(publicKey);
 
             byte[] sByte = Arrays.CopyOfRange(signature, BitLength / 8, BitLength / 4);
             BigInteger s = DecodeInt(sByte);
             BigInteger h;
 
-            using (var stemp = new MemoryStream(32 + publicKey.Length + message.Length))
+            using (MemoryStream stemp = new MemoryStream(32 + publicKey.Length + message.Length))
             {
-                var encodePoint = EncodePoint(r.Item1, r.Item2);
+                byte[] encodePoint = EncodePoint(r.Item1, r.Item2);
                 stemp.Write(encodePoint, 0, encodePoint.Length);
                 stemp.Write(publicKey, 0, publicKey.Length);
                 stemp.Write(message, 0, message.Length);
                 h = HashInt(stemp.ToArray());
             }
-            var ra = ScalarMul(B, s);
-            var ah = ScalarMul(a, h);
-            var rb = Edwards(r.Item1, r.Item2, ah.Item1, ah.Item2);
-            if (!ra.Item1.Equals(rb.Item1) || !ra.Item2.Equals(rb.Item2))
-                return false;
-            return true;
+            Tuple<BigInteger, BigInteger> ra = ScalarMul(B, s);
+            Tuple<BigInteger, BigInteger> ah = ScalarMul(a, h);
+            Tuple<BigInteger, BigInteger> rb = Edwards(r.Item1, r.Item2, ah.Item1, ah.Item2);
+            return ra.Item1.Equals(rb.Item1) && ra.Item2.Equals(rb.Item2);
         }
 
         private const int BitLength = 256;
@@ -281,7 +274,7 @@ namespace Cryptographic
         public static byte[] CopyOfRange(byte[] original, int from, int to)
         {
             int length = to - from;
-            var result = new byte[length];
+            byte[] result = new byte[length];
             Array.Copy(original, from, result, 0, length);
             return result;
         }
@@ -291,7 +284,7 @@ namespace Cryptographic
     {
         public static BigInteger Mod(this BigInteger num, BigInteger modulo)
         {
-            var result = num % modulo;
+            BigInteger result = num % modulo;
             return result < 0 ? result + modulo : result;
         }
     }

@@ -1,9 +1,9 @@
-﻿using NUnit.Framework;
 using System;
 using System.Diagnostics;
 using System.Linq;
 using System.Numerics;
 using System.Text;
+using NUnit.Framework;
 
 namespace Cryptographic.Tests
 {
@@ -13,17 +13,17 @@ namespace Cryptographic.Tests
         [Test]
         public void TestPortedFromJava()
         {
-            var sw = Stopwatch.StartNew();
+            Stopwatch sw = Stopwatch.StartNew();
 
-            var sk = new byte[32];
+            byte[] sk = new byte[32];
             byte[] pk = Ed25519.PublicKey(sk);
             Console.WriteLine("publickey for 0 is \"" + GetHex(pk) + "\"");
-            Assert.AreEqual("3b6a27bcceb6a42d62a3a8d02a6f0d73653215771de243a63ac048a18b59da29", GetHex(pk));
+            Assert.That(GetHex(pk), Is.EqualTo("3b6a27bcceb6a42d62a3a8d02a6f0d73653215771de243a63ac048a18b59da29"));
 
             Console.WriteLine("encodeint 0 = " + GetHex(Ed25519.EncodeInt(BigInteger.Zero)));
             Console.WriteLine("encodeint 1 = " + GetHex(Ed25519.EncodeInt(BigInteger.One)));
             Console.WriteLine("encodeint 10 = " + GetHex(Ed25519.EncodeInt(new BigInteger(10))));
-            var pkr = new Tuple<BigInteger, BigInteger>
+            Tuple<BigInteger, BigInteger> pkr = new Tuple<BigInteger, BigInteger>
                 (
                 BigInteger.Parse("9639205628789703341510410801487549615560488670885798085067615194958049462616"),
                 BigInteger.Parse("18930617471878267742194159801949745215346600387277955685031939302387136031291")
@@ -36,11 +36,11 @@ namespace Cryptographic.Tests
                 "encodepoint 9639205628789703341510410801487549615560488670885798085067615194958049462616,18930617471878267742194159801949745215346600387277955685031939302387136031291 = " +
                 GetHex(Ed25519.EncodePoint(pkr.Item1, pkr.Item2)));
 
-            Assert.AreEqual("3b6a27bcceb6a42d62a3a8d02a6f0d73653215771de243a63ac048a18b59da29", GetHex(Ed25519.EncodePoint(pkr.Item1, pkr.Item2)));
+            Assert.That(GetHex(Ed25519.EncodePoint(pkr.Item1, pkr.Item2)), Is.EqualTo("3b6a27bcceb6a42d62a3a8d02a6f0d73653215771de243a63ac048a18b59da29"));
 
             byte[] message = Encoding.UTF8.GetBytes("This is a secret message");
             byte[] signature = Ed25519.Signature(message, sk, pk);
-            Assert.AreEqual("94825896c7075c31bcb81f06dba2bdcd9dcf16e79288d4b9f87c248215c8468d475f429f3de3b4a2cf67fe17077ae19686020364d6d4fa7a0174bab4a123ba0f", GetHex(signature));
+            Assert.That(GetHex(signature), Is.EqualTo("94825896c7075c31bcb81f06dba2bdcd9dcf16e79288d4b9f87c248215c8468d475f429f3de3b4a2cf67fe17077ae19686020364d6d4fa7a0174bab4a123ba0f"));
 
             Console.WriteLine("signature(\"This is a secret message\") = " + GetHex(signature));
             bool signatureValid = Ed25519.CheckValid(signature, message, pk);
@@ -52,12 +52,12 @@ namespace Cryptographic.Tests
         [Test]
         public void RandomTest()
         {
-            var sw = Stopwatch.StartNew();
+            Stopwatch sw = Stopwatch.StartNew();
 
-            var seed = new Random().Next();
+            int seed = new Random().Next();
 
-            var rnd = new Random(seed);
-            var signingKey = Enumerable.Range(0, 32).Select(x => (byte) rnd.Next(256)).ToArray();
+            Random rnd = new(seed);
+            byte[] signingKey = Enumerable.Range(0, 32).Select(x => (byte)rnd.Next(256)).ToArray();
 
             byte[] publicKey = Ed25519.PublicKey(signingKey);
 
@@ -67,25 +67,25 @@ namespace Cryptographic.Tests
             Assert.IsTrue(signatureValid, "Test with random seed {0} failed", seed);
 
             message[0] = (byte)(message[0] ^ 1);
-            var signatureValidAfterChange = Ed25519.CheckValid(signature, message, publicKey);
+            bool signatureValidAfterChange = Ed25519.CheckValid(signature, message, publicKey);
             Assert.IsFalse(signatureValidAfterChange, "Test with random seed {0} failed", seed);
 
             Console.WriteLine("Test run in " + sw.Elapsed);
         }
 
-        const string HexString = "0123456789abcdef";
+        private const string HexString = "0123456789abcdef";
 
-        public static String GetHex(byte[] raw)
+        public static string? GetHex(byte[] raw)
         {
             if (raw == null)
             {
                 return null;
             }
-            var hex = new StringBuilder(2 * raw.Length);
+            StringBuilder hex = new(2 * raw.Length);
             foreach (byte b in raw)
             {
-                hex.Append(HexString[((b & 0xF0) >> 4)]);
-                hex.Append(HexString[((b & 0x0F))]);
+                hex.Append(HexString[(b & 0xF0) >> 4]);
+                hex.Append(HexString[b & 0x0F]);
             }
             return hex.ToString();
         }
