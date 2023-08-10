@@ -8,6 +8,270 @@ namespace Cryptographic
     public static partial class Ed25519
     {
         /// <summary>
+        /// Encodes a BigInteger integer into a byte array representation.
+        /// </summary>
+        /// <param name="y">The BigInteger integer to be encoded.</param>
+        /// <remarks>
+        /// This function encodes a given BigInteger 'y' into a byte array representation. Encoding
+        /// integers into byte arrays is a common operation in cryptography and data serialization.
+        ///
+        /// The function first converts the BigInteger 'y' into its binary representation using the
+        /// ToByteArray method. It then ensures that the encoded representation occupies at least 32 bytes
+        /// by copying the binary data into a new byte array of appropriate size.
+        /// </remarks>
+        /// <returns>A byte array containing the encoded representation of the input BigInteger.</returns>
+        public static byte[] EncodeInt(BigInteger y)
+        {
+            // Convert the BigInteger 'y' into its binary representation.
+            byte[] nin = y.ToByteArray();
+
+            // Create a new byte array of size at least 32 and copy the binary data.
+            byte[] nout = new byte[Math.Max(nin.Length, 32)];
+            nin.CopyTo(nout.AsSpan(nout.Length - nin.Length));
+
+            return nout;
+        }
+
+        /// <summary>
+        /// Decodes a byte array representation into a BigInteger integer.
+        /// </summary>
+        /// <param name="s">The byte array to be decoded.</param>
+        /// <remarks>
+        /// This function decodes a given byte array 's' into a BigInteger integer.
+        /// The function constructs the BigInteger by treating the byte array as an unsigned integer,
+        /// and then applies a bitwise AND operation with a predefined mask '_un' to ensure it's within bounds.
+        /// </remarks>
+        /// <returns>The decoded BigInteger integer.</returns>
+        // Construct a BigInteger by treating the byte array as an unsigned integer.
+        // Apply a bitwise AND operation with '_un' to ensure the value is within bounds.
+        public static BigInteger DecodeInt(ReadOnlySpan<byte> s) => new BigInteger(s) & _un;
+
+        /// <summary>
+        /// Encodes an elliptic curve point (x, y) into a compressed byte array representation.
+        /// </summary>
+        /// <param name="x">The x-coordinate of the elliptic curve point.</param>
+        /// <param name="y">The y-coordinate of the elliptic curve point.</param>
+        /// <remarks>
+        /// This function encodes an elliptic curve point (x, y) into a compressed byte array representation.
+        /// Compressing the point representation is a common practice in elliptic curve cryptography to save space.
+        ///
+        /// The function first encodes the y-coordinate using the 'EncodeInt' function, resulting in a byte array.
+        /// It then modifies the last byte of the y-coordinate representation to indicate whether the x-coordinate
+        /// is even or odd. If x is even, the last bit of the last byte is set to 0; otherwise, it's set to 1.
+        ///
+        /// The resulting compressed byte array contains the encoded point (x, y) with the x-coordinate parity bit.
+        /// </remarks>
+        /// <returns>A compressed byte array containing the encoded representation of the point (x, y).</returns>
+        public static byte[] EncodePoint(BigInteger x, BigInteger y)
+        {
+            byte[] nout = EncodeInt(y);
+
+            // Set the last bit of the last byte to indicate x-coordinate parity.
+            nout[^1] |= x.IsEven ? (byte)0 : (byte)128;
+
+            return nout;
+        }
+
+        /// <summary>
+        /// Decodes a compressed byte array representation into an elliptic curve point (x, y).
+        /// </summary>
+        /// <param name="pointBytes">The compressed byte array representing the point.</param>
+        /// <remarks>
+        /// This function decodes a given compressed byte array 'pointBytes' into an elliptic curve point (x, y).
+        /// The decoding process involves recovering the x-coordinate 'x' from the y-coordinate 'y' using the
+        /// 'RecoverX' function. The parity of the x-coordinate is adjusted based on the last bit of 'pointBytes'.
+        ///
+        /// The function then checks if the decoded point lies on the curve using the 'IsOnCurve' function. If
+        /// the point is on the curve, it's returned as the result. If the point is not on the curve, an
+        /// ArgumentException is thrown.
+        /// </remarks>
+        /// <returns>The (x, y) coordinates of the decoded elliptic curve point.</returns>
+        /// <exception cref="ArgumentException">Thrown when the decoded point is not on the curve.</exception>
+        public static (BigInteger, BigInteger) DecodePoint(ReadOnlySpan<byte> pointBytes)
+        {
+            // Construct a BigInteger from the compressed byte array and apply the mask '_un'.
+            BigInteger y = new BigInteger(pointBytes) & _un;
+
+            // Recover the x-coordinate from the y-coordinate.
+            BigInteger x = RecoverX(y);
+
+            // Adjust x-coordinate parity based on the last bit of 'pointBytes'.
+            if ((x.IsEven ? 0 : 1) != GetBit(pointBytes, BIT_LENGTH - 1))
+            {
+                x = _q - x;
+            }
+
+            // Check if the decoded point lies on the curve.
+            return IsOnCurve(x, y)
+                ? (x, y)
+                : throw new ArgumentException("Decoding point that is not on curve");
+        }
+
+        /// <summary>
+        /// Computes the public key corresponding to a given Ed25519 signing key.
+        /// </summary>
+        /// <param name="signingKey">The signing key used to derive the public key.</param>
+        /// <remarks>
+        /// This function calculates the public key corresponding to a given Ed25519 signing key.
+        /// The Ed25519 algorithm uses elliptic curve cryptography to compute the public key from
+        /// the private signing key.
+        ///
+        /// The function first computes the SHA-512 hash of the input signing key 'signingKey' to
+        /// obtain the byte array 'h'. It then uses a binary representation of 'h' to generate the
+        /// public key. The process involves iterating over the bits of 'h' and adding specific
+        /// powers of two to a BigInteger 'a' if the corresponding bit is set. The result 'a' is used
+        /// to perform scalar multiplication with the base point '_b' to obtain the public key point.
+        ///
+        /// The (x, y) coordinates of the resulting public key point are then encoded into a compressed
+        /// byte array using the 'EncodePoint' function.
+        /// </remarks>
+        /// <returns>The computed public key as a compressed byte array.</returns>
+        public static byte[] PublicKey(ReadOnlySpan<byte> signingKey)
+        {
+            // Compute the SHA-512 hash of the signing key.
+            byte[] h = SHA512.HashData(signingKey);
+
+            // Initialize the exponent 'a' with a predefined value.
+            BigInteger a = _twoPowBitLengthMinusTwo;
+
+            // Iterate over the bits of 'h' and update 'a' accordingly.
+            for (int i = 3; i < (BIT_LENGTH - 2); i++)
+            {
+                int bit = GetBit(h, i);
+                if (bit != 0)
+                {
+                    a += _powerOfTwoCache[i];
+                }
+            }
+
+            // Perform scalar multiplication to compute the public key point.
+            (BigInteger, BigInteger) bigA = ScalarMul(_b, a);
+
+            // Encode the resulting (x, y) coordinates into a compressed byte array.
+            return EncodePoint(bigA.Item1, bigA.Item2);
+        }
+
+        /// <summary>
+        /// Creates a digital signature for a given message using the Ed25519 algorithm.
+        /// </summary>
+        /// <param name="message">The message to be signed.</param>
+        /// <param name="signingKey">The private signing key.</param>
+        /// <param name="publicKey">The corresponding public key.</param>
+        /// <remarks>
+        /// This function generates a digital signature for a given message using the Ed25519 algorithm.
+        /// The Ed25519 algorithm combines elliptic curve cryptography with hashing to create signatures.
+        ///
+        /// The function first derives a scalar 'a' from the signing key and message using the 'HashInt' function.
+        /// It then derives a scalar 'r' in a similar manner by combining parts of the signing key and the message.
+        /// The point (x, y) corresponding to 'r' is obtained using scalar multiplication.
+        ///
+        /// Next, the function constructs the scalar 's' by combining 'r', 'a', the encoded point 'R', the public key,
+        /// and the message. The final signature is composed of the encoded point 'R' and the encoded scalar 's'.
+        /// </remarks>
+        /// <returns>The digital signature as a byte array.</returns>
+        public static byte[] Signature(ReadOnlySpan<byte> message, ReadOnlySpan<byte> signingKey, ReadOnlySpan<byte> publicKey)
+        {
+            // Derive 'a' from the signing key and message.
+            byte[] h = SHA512.HashData(signingKey);
+            BigInteger a = _twoPowBitLengthMinusTwo;
+
+            for (int i = 3; i < (BIT_LENGTH - 2); i++)
+            {
+                int bit = GetBit(h, i);
+                if (bit != 0)
+                {
+                    a += _powerOfTwoCache[i];
+                }
+            }
+
+            // Derive 'r' from a combination of the signing key and message.
+            BigInteger r;
+            MemoryStream rsub = new((BIT_LENGTH / 8) + message.Length);
+            rsub.Write(h, BIT_LENGTH / 8, (BIT_LENGTH / 4) - (BIT_LENGTH / 8));
+            rsub.Write(message);
+            r = HashInt(rsub.ToArray());
+
+            // Perform scalar multiplication to obtain the point (x, y) corresponding to 'r'.
+            (BigInteger, BigInteger) bigR = ScalarMul(_b, r);
+
+            // Construct the scalar 's' for the signature.
+            BigInteger s;
+            byte[] encodedBigR = EncodePoint(bigR.Item1, bigR.Item2);
+
+            MemoryStream stemp = new(32 + publicKey.Length + message.Length);
+            stemp.Write(encodedBigR);
+            stemp.Write(publicKey);
+            stemp.Write(message);
+            s = (r + (HashInt(stemp.ToArray()) * a)) % _l;
+
+            // Construct the final signature as a byte array.
+            MemoryStream nout = new(64);
+            nout.Write(encodedBigR);
+            byte[] encodeInt = EncodeInt(s);
+            nout.Write(encodeInt);
+
+            return nout.ToArray();
+        }
+
+        /// <summary>
+        /// Checks the validity of a digital signature for a given message using the Ed25519 algorithm.
+        /// </summary>
+        /// <param name="signature">The digital signature to be verified.</param>
+        /// <param name="message">The message that was signed.</param>
+        /// <param name="publicKey">The public key corresponding to the signer's private key.</param>
+        /// <remarks>
+        /// This function checks the validity of a given digital signature for a specific message using the
+        /// Ed25519 algorithm. The function verifies whether the signature was produced by the corresponding
+        /// private key corresponding to the provided public key.
+        ///
+        /// The function performs several steps, including decoding the signature and public key into points
+        /// on the elliptic curve, calculating the hash 'h' of the message and public key, and performing scalar
+        /// multiplications using the base point '_b' and the computed values.
+        ///
+        /// The function then checks if the computed points satisfy a specific equality relation, which verifies
+        /// the validity of the signature. If the points match, the signature is considered valid; otherwise, it's not.
+        /// </remarks>
+        /// <returns>True if the signature is valid, false otherwise.</returns>
+        public static bool IsValid(ReadOnlySpan<byte> signature, ReadOnlySpan<byte> message, ReadOnlySpan<byte> publicKey)
+        {
+            // Check the lengths of the signature and public key.
+            if (signature.Length != BIT_LENGTH / 4)
+            {
+                throw new ArgumentException("Signature length is wrong");
+            }
+            else if (publicKey.Length != BIT_LENGTH / 8)
+            {
+                throw new ArgumentException("Public key length is wrong");
+            }
+
+            // Decode the signature point 'r' and the public key point 'a'.
+            ReadOnlySpan<byte> rByte = signature[..(BIT_LENGTH / 8)];
+            (BigInteger, BigInteger) r = DecodePoint(rByte);
+            (BigInteger, BigInteger) a = DecodePoint(publicKey);
+
+            // Decode the scalar 's' from the signature.
+            ReadOnlySpan<byte> sByte = signature[(BIT_LENGTH / 8)..(BIT_LENGTH / 4)];
+            BigInteger s = DecodeInt(sByte);
+            BigInteger h;
+
+            // Compute the hash 'h' of the encoded values.
+            using MemoryStream stemp = new(32 + publicKey.Length + message.Length);
+            byte[] encodePoint = EncodePoint(r.Item1, r.Item2);
+            stemp.Write(encodePoint);
+            stemp.Write(publicKey);
+            stemp.Write(message);
+            h = HashInt(stemp.ToArray());
+
+            // Perform scalar multiplications to check the validity of the signature.
+            (BigInteger, BigInteger) ra = ScalarMul(_b, s);
+            (BigInteger, BigInteger) ah = ScalarMul(a, h);
+            (BigInteger, BigInteger) rb = Edwards(r.Item1, r.Item2, ah.Item1, ah.Item2);
+
+            // Check if the computed points satisfy the equality relation.
+            return ra.Item1.Equals(rb.Item1) && ra.Item2.Equals(rb.Item2);
+        }
+
+        /// <summary>
         /// Computes the modular inverse of a given BigInteger with respect to a specific prime modulus.
         /// </summary>
         /// <param name="x">The BigInteger for which the modular inverse will be computed.</param>
@@ -149,57 +413,6 @@ namespace Cryptographic
         }
 
         /// <summary>
-        /// Encodes a BigInteger integer into a byte array representation.
-        /// </summary>
-        /// <param name="y">The BigInteger integer to be encoded.</param>
-        /// <remarks>
-        /// This function encodes a given BigInteger 'y' into a byte array representation. Encoding
-        /// integers into byte arrays is a common operation in cryptography and data serialization.
-        ///
-        /// The function first converts the BigInteger 'y' into its binary representation using the
-        /// ToByteArray method. It then ensures that the encoded representation occupies at least 32 bytes
-        /// by copying the binary data into a new byte array of appropriate size.
-        /// </remarks>
-        /// <returns>A byte array containing the encoded representation of the input BigInteger.</returns>
-        public static byte[] EncodeInt(BigInteger y)
-        {
-            // Convert the BigInteger 'y' into its binary representation.
-            byte[] nin = y.ToByteArray();
-
-            // Create a new byte array of size at least 32 and copy the binary data.
-            byte[] nout = new byte[Math.Max(nin.Length, 32)];
-            nin.CopyTo(nout.AsSpan(nout.Length - nin.Length));
-
-            return nout;
-        }
-
-        /// <summary>
-        /// Encodes an elliptic curve point (x, y) into a compressed byte array representation.
-        /// </summary>
-        /// <param name="x">The x-coordinate of the elliptic curve point.</param>
-        /// <param name="y">The y-coordinate of the elliptic curve point.</param>
-        /// <remarks>
-        /// This function encodes an elliptic curve point (x, y) into a compressed byte array representation.
-        /// Compressing the point representation is a common practice in elliptic curve cryptography to save space.
-        ///
-        /// The function first encodes the y-coordinate using the 'EncodeInt' function, resulting in a byte array.
-        /// It then modifies the last byte of the y-coordinate representation to indicate whether the x-coordinate
-        /// is even or odd. If x is even, the last bit of the last byte is set to 0; otherwise, it's set to 1.
-        ///
-        /// The resulting compressed byte array contains the encoded point (x, y) with the x-coordinate parity bit.
-        /// </remarks>
-        /// <returns>A compressed byte array containing the encoded representation of the point (x, y).</returns>
-        public static byte[] EncodePoint(BigInteger x, BigInteger y)
-        {
-            byte[] nout = EncodeInt(y);
-
-            // Set the last bit of the last byte to indicate x-coordinate parity.
-            nout[^1] |= x.IsEven ? (byte)0 : (byte)128;
-
-            return nout;
-        }
-
-        /// <summary>
         /// Retrieves the value of a specific bit from a byte array.
         /// </summary>
         /// <param name="h">The byte array containing the bits.</param>
@@ -221,50 +434,6 @@ namespace Cryptographic
 
             // Retrieve and return the value of the specified bit.
             return (h[byteIndex] >> bitIndex) & 1;
-        }
-
-        /// <summary>
-        /// Computes the public key corresponding to a given Ed25519 signing key.
-        /// </summary>
-        /// <param name="signingKey">The signing key used to derive the public key.</param>
-        /// <remarks>
-        /// This function calculates the public key corresponding to a given Ed25519 signing key.
-        /// The Ed25519 algorithm uses elliptic curve cryptography to compute the public key from
-        /// the private signing key.
-        ///
-        /// The function first computes the SHA-512 hash of the input signing key 'signingKey' to
-        /// obtain the byte array 'h'. It then uses a binary representation of 'h' to generate the
-        /// public key. The process involves iterating over the bits of 'h' and adding specific
-        /// powers of two to a BigInteger 'a' if the corresponding bit is set. The result 'a' is used
-        /// to perform scalar multiplication with the base point '_b' to obtain the public key point.
-        ///
-        /// The (x, y) coordinates of the resulting public key point are then encoded into a compressed
-        /// byte array using the 'EncodePoint' function.
-        /// </remarks>
-        /// <returns>The computed public key as a compressed byte array.</returns>
-        public static byte[] PublicKey(ReadOnlySpan<byte> signingKey)
-        {
-            // Compute the SHA-512 hash of the signing key.
-            byte[] h = SHA512.HashData(signingKey);
-
-            // Initialize the exponent 'a' with a predefined value.
-            BigInteger a = _twoPowBitLengthMinusTwo;
-
-            // Iterate over the bits of 'h' and update 'a' accordingly.
-            for (int i = 3; i < (BIT_LENGTH - 2); i++)
-            {
-                int bit = GetBit(h, i);
-                if (bit != 0)
-                {
-                    a += _powerOfTwoCache[i];
-                }
-            }
-
-            // Perform scalar multiplication to compute the public key point.
-            (BigInteger, BigInteger) bigA = ScalarMul(_b, a);
-
-            // Encode the resulting (x, y) coordinates into a compressed byte array.
-            return EncodePoint(bigA.Item1, bigA.Item2);
         }
 
         /// <summary>
@@ -302,68 +471,6 @@ namespace Cryptographic
         }
 
         /// <summary>
-        /// Creates a digital signature for a given message using the Ed25519 algorithm.
-        /// </summary>
-        /// <param name="message">The message to be signed.</param>
-        /// <param name="signingKey">The private signing key.</param>
-        /// <param name="publicKey">The corresponding public key.</param>
-        /// <remarks>
-        /// This function generates a digital signature for a given message using the Ed25519 algorithm.
-        /// The Ed25519 algorithm combines elliptic curve cryptography with hashing to create signatures.
-        ///
-        /// The function first derives a scalar 'a' from the signing key and message using the 'HashInt' function.
-        /// It then derives a scalar 'r' in a similar manner by combining parts of the signing key and the message.
-        /// The point (x, y) corresponding to 'r' is obtained using scalar multiplication.
-        ///
-        /// Next, the function constructs the scalar 's' by combining 'r', 'a', the encoded point 'R', the public key,
-        /// and the message. The final signature is composed of the encoded point 'R' and the encoded scalar 's'.
-        /// </remarks>
-        /// <returns>The digital signature as a byte array.</returns>
-        public static byte[] Signature(ReadOnlySpan<byte> message, ReadOnlySpan<byte> signingKey, ReadOnlySpan<byte> publicKey)
-        {
-            // Derive 'a' from the signing key and message.
-            byte[] h = SHA512.HashData(signingKey);
-            BigInteger a = _twoPowBitLengthMinusTwo;
-
-            for (int i = 3; i < (BIT_LENGTH - 2); i++)
-            {
-                int bit = GetBit(h, i);
-                if (bit != 0)
-                {
-                    a += _powerOfTwoCache[i];
-                }
-            }
-
-            // Derive 'r' from a combination of the signing key and message.
-            BigInteger r;
-            MemoryStream rsub = new((BIT_LENGTH / 8) + message.Length);
-            rsub.Write(h, BIT_LENGTH / 8, (BIT_LENGTH / 4) - (BIT_LENGTH / 8));
-            rsub.Write(message);
-            r = HashInt(rsub.ToArray());
-
-            // Perform scalar multiplication to obtain the point (x, y) corresponding to 'r'.
-            (BigInteger, BigInteger) bigR = ScalarMul(_b, r);
-
-            // Construct the scalar 's' for the signature.
-            BigInteger s;
-            byte[] encodedBigR = EncodePoint(bigR.Item1, bigR.Item2);
-
-            MemoryStream stemp = new(32 + publicKey.Length + message.Length);
-            stemp.Write(encodedBigR);
-            stemp.Write(publicKey);
-            stemp.Write(message);
-            s = (r + (HashInt(stemp.ToArray()) * a)) % _l;
-
-            // Construct the final signature as a byte array.
-            MemoryStream nout = new(64);
-            nout.Write(encodedBigR);
-            byte[] encodeInt = EncodeInt(s);
-            nout.Write(encodeInt);
-
-            return nout.ToArray();
-        }
-
-        /// <summary>
         /// Checks if a given point (x, y) lies on the Ed25519 elliptic curve.
         /// </summary>
         /// <param name="x">The x-coordinate of the point to be checked.</param>
@@ -385,113 +492,6 @@ namespace Cryptographic
 
             // Check if the point satisfies the curve equation and lies on the curve.
             return (yy - xx - dxxyy - 1).Mod(_q) == BigInteger.Zero;
-        }
-
-        /// <summary>
-        /// Decodes a byte array representation into a BigInteger integer.
-        /// </summary>
-        /// <param name="s">The byte array to be decoded.</param>
-        /// <remarks>
-        /// This function decodes a given byte array 's' into a BigInteger integer.
-        /// The function constructs the BigInteger by treating the byte array as an unsigned integer,
-        /// and then applies a bitwise AND operation with a predefined mask '_un' to ensure it's within bounds.
-        /// </remarks>
-        /// <returns>The decoded BigInteger integer.</returns>
-        // Construct a BigInteger by treating the byte array as an unsigned integer.
-        // Apply a bitwise AND operation with '_un' to ensure the value is within bounds.
-        private static BigInteger DecodeInt(ReadOnlySpan<byte> s) => new BigInteger(s) & _un;
-
-        /// <summary>
-        /// Decodes a compressed byte array representation into an elliptic curve point (x, y).
-        /// </summary>
-        /// <param name="pointBytes">The compressed byte array representing the point.</param>
-        /// <remarks>
-        /// This function decodes a given compressed byte array 'pointBytes' into an elliptic curve point (x, y).
-        /// The decoding process involves recovering the x-coordinate 'x' from the y-coordinate 'y' using the
-        /// 'RecoverX' function. The parity of the x-coordinate is adjusted based on the last bit of 'pointBytes'.
-        ///
-        /// The function then checks if the decoded point lies on the curve using the 'IsOnCurve' function. If
-        /// the point is on the curve, it's returned as the result. If the point is not on the curve, an
-        /// ArgumentException is thrown.
-        /// </remarks>
-        /// <returns>The (x, y) coordinates of the decoded elliptic curve point.</returns>
-        /// <exception cref="ArgumentException">Thrown when the decoded point is not on the curve.</exception>
-        private static (BigInteger, BigInteger) DecodePoint(ReadOnlySpan<byte> pointBytes)
-        {
-            // Construct a BigInteger from the compressed byte array and apply the mask '_un'.
-            BigInteger y = new BigInteger(pointBytes) & _un;
-
-            // Recover the x-coordinate from the y-coordinate.
-            BigInteger x = RecoverX(y);
-
-            // Adjust x-coordinate parity based on the last bit of 'pointBytes'.
-            if ((x.IsEven ? 0 : 1) != GetBit(pointBytes, BIT_LENGTH - 1))
-            {
-                x = _q - x;
-            }
-
-            // Check if the decoded point lies on the curve.
-            return IsOnCurve(x, y)
-                ? (x, y)
-                : throw new ArgumentException("Decoding point that is not on curve");
-        }
-
-        /// <summary>
-        /// Checks the validity of a digital signature for a given message using the Ed25519 algorithm.
-        /// </summary>
-        /// <param name="signature">The digital signature to be verified.</param>
-        /// <param name="message">The message that was signed.</param>
-        /// <param name="publicKey">The public key corresponding to the signer's private key.</param>
-        /// <remarks>
-        /// This function checks the validity of a given digital signature for a specific message using the
-        /// Ed25519 algorithm. The function verifies whether the signature was produced by the corresponding
-        /// private key corresponding to the provided public key.
-        ///
-        /// The function performs several steps, including decoding the signature and public key into points
-        /// on the elliptic curve, calculating the hash 'h' of the message and public key, and performing scalar
-        /// multiplications using the base point '_b' and the computed values.
-        ///
-        /// The function then checks if the computed points satisfy a specific equality relation, which verifies
-        /// the validity of the signature. If the points match, the signature is considered valid; otherwise, it's not.
-        /// </remarks>
-        /// <returns>True if the signature is valid, false otherwise.</returns>
-        public static bool CheckValid(ReadOnlySpan<byte> signature, ReadOnlySpan<byte> message, ReadOnlySpan<byte> publicKey)
-        {
-            // Check the lengths of the signature and public key.
-            if (signature.Length != BIT_LENGTH / 4)
-            {
-                throw new ArgumentException("Signature length is wrong");
-            }
-            else if (publicKey.Length != BIT_LENGTH / 8)
-            {
-                throw new ArgumentException("Public key length is wrong");
-            }
-
-            // Decode the signature point 'r' and the public key point 'a'.
-            ReadOnlySpan<byte> rByte = signature[..(BIT_LENGTH / 8)];
-            (BigInteger, BigInteger) r = DecodePoint(rByte);
-            (BigInteger, BigInteger) a = DecodePoint(publicKey);
-
-            // Decode the scalar 's' from the signature.
-            ReadOnlySpan<byte> sByte = signature[(BIT_LENGTH / 8)..(BIT_LENGTH / 4)];
-            BigInteger s = DecodeInt(sByte);
-            BigInteger h;
-
-            // Compute the hash 'h' of the encoded values.
-            using MemoryStream stemp = new(32 + publicKey.Length + message.Length);
-            byte[] encodePoint = EncodePoint(r.Item1, r.Item2);
-            stemp.Write(encodePoint);
-            stemp.Write(publicKey);
-            stemp.Write(message);
-            h = HashInt(stemp.ToArray());
-
-            // Perform scalar multiplications to check the validity of the signature.
-            (BigInteger, BigInteger) ra = ScalarMul(_b, s);
-            (BigInteger, BigInteger) ah = ScalarMul(a, h);
-            (BigInteger, BigInteger) rb = Edwards(r.Item1, r.Item2, ah.Item1, ah.Item2);
-
-            // Check if the computed points satisfy the equality relation.
-            return ra.Item1.Equals(rb.Item1) && ra.Item2.Equals(rb.Item2);
         }
     }
 }

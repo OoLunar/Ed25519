@@ -43,7 +43,7 @@ namespace Cryptographic.Tests
             Assert.That(GetHex(signature), Is.EqualTo("94825896c7075c31bcb81f06dba2bdcd9dcf16e79288d4b9f87c248215c8468d475f429f3de3b4a2cf67fe17077ae19686020364d6d4fa7a0174bab4a123ba0f"));
 
             Console.WriteLine("signature(\"This is a secret message\") = " + GetHex(signature));
-            bool signatureValid = Ed25519.CheckValid(signature, message, pk);
+            bool signatureValid = Ed25519.IsValid(signature, message, pk);
             Console.WriteLine("check signature result:\n" + signatureValid + ", Test run in " + sw.Elapsed);
 
             Assert.IsTrue(signatureValid);
@@ -63,11 +63,11 @@ namespace Cryptographic.Tests
 
             byte[] message = Encoding.UTF8.GetBytes("This is a secret message");
             byte[] signature = Ed25519.Signature(message, signingKey, publicKey);
-            bool signatureValid = Ed25519.CheckValid(signature, message, publicKey);
+            bool signatureValid = Ed25519.IsValid(signature, message, publicKey);
             Assert.IsTrue(signatureValid, "Test with random seed {0} failed", seed);
 
             message[0] = (byte)(message[0] ^ 1);
-            bool signatureValidAfterChange = Ed25519.CheckValid(signature, message, publicKey);
+            bool signatureValidAfterChange = Ed25519.IsValid(signature, message, publicKey);
             Assert.IsFalse(signatureValidAfterChange, "Test with random seed {0} failed", seed);
 
             Console.WriteLine("Test run in " + sw.Elapsed);
